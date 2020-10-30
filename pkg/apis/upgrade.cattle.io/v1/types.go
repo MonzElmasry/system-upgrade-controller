@@ -41,10 +41,15 @@ type PlanSpec struct {
 
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 
-	Prepare *ContainerSpec `json:"prepare,omitempty"`
-	Cordon  bool           `json:"cordon,omitempty"`
-	Drain   *DrainSpec     `json:"drain,omitempty"`
-	Upgrade *ContainerSpec `json:"upgrade,omitempty"`
+	Prepare    *ContainerSpec `json:"prepare,omitempty"`
+	Cordon     bool           `json:"cordon,omitempty"`
+	Drain      *DrainSpec     `json:"drain,omitempty"`
+	Upgrade    *ContainerSpec `json:"upgrade,omitempty"`
+	NodeConfig *NodeConfig    `json:"nodeConfig,omitempty"`
+}
+type NodeConfig struct {
+	Provider string            `json:"provider,omitempty"`
+	Config   map[string]string `json:"config,omitempty"`
 }
 
 // PlanStatus represents the resulting state from processing Plan events.

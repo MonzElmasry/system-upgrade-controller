@@ -1,7 +1,11 @@
 package job
 
 import (
+	"encoding/json"
+	"io/ioutil"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 
 	upgradeapi "github.com/rancher/system-upgrade-controller/pkg/apis/upgrade.cattle.io"
@@ -253,21 +257,80 @@ func New(plan *upgradeapiv1.Plan, nodeName, controllerName string) *batchv1.Job 
 	}
 
 	// and finally, we upgrade
-	podTemplate.Spec.Containers = []corev1.Container{
-		upgradectr.New("upgrade", *plan.Spec.Upgrade,
-			upgradectr.WithLatestTag(plan.Status.LatestVersion),
-			upgradectr.WithSecurityContext(&corev1.SecurityContext{
-				Privileged: &Privileged,
-				Capabilities: &corev1.Capabilities{
-					Add: []corev1.Capability{
-						corev1.Capability("CAP_SYS_BOOT"),
+	if plan.Spec.Upgrade != nil {
+		podTemplate.Spec.Containers = []corev1.Container{
+			upgradectr.New("upgrade", *plan.Spec.Upgrade,
+				upgradectr.WithLatestTag(plan.Status.LatestVersion),
+				upgradectr.WithSecurityContext(&corev1.SecurityContext{
+					Privileged: &Privileged,
+					Capabilities: &corev1.Capabilities{
+						Add: []corev1.Capability{
+							corev1.Capability("CAP_SYS_BOOT"),
+						},
 					},
-				},
-			}),
-			upgradectr.WithSecrets(plan.Spec.Secrets),
-			upgradectr.WithPlanEnvironment(plan.Name, plan.Status),
-			upgradectr.WithImagePullPolicy(ImagePullPolicy),
-		),
+				}),
+				upgradectr.WithSecrets(plan.Spec.Secrets),
+				upgradectr.WithPlanEnvironment(plan.Name, plan.Status),
+				upgradectr.WithImagePullPolicy(ImagePullPolicy),
+			),
+		}
+	}
+	//cmd := exec.Command("lsb_release", " -a")
+	//opers, err := cmd.CombinedOutput()
+	//
+	//if plan.Spec.NodeConfig != nil {
+	//	configContainerSpec := upgradeapiv1.ContainerSpec{
+	//		Image: plan.Spec.NodeConfig.Image,
+	//		Args:  nil,
+	//	}
+	//	podTemplate.Spec.Containers = []corev1.Container{
+	//		upgradectr.New("config", configContainerSpec,
+	//			upgradectr.WithLatestTag(plan.Status.LatestVersion),
+	//			upgradectr.WithSecurityContext(&corev1.SecurityContext{
+	//				Privileged: &Privileged,
+	//				Capabilities: &corev1.Capabilities{
+	//					Add: []corev1.Capability{
+	//						corev1.Capability("CAP_SYS_BOOT"),
+	//					},
+	//				},
+	//			}),
+	//			upgradectr.WithSecrets(plan.Spec.Secrets),
+	//			upgradectr.WithPlanEnvironment(plan.Name, plan.Status),
+	//			upgradectr.WithImagePullPolicy(ImagePullPolicy),
+	//		),
+	//	}
+	//}
+
+	if plan.Spec.NodeConfig != nil {
+		configDir := filepath.Join("/etc/rancher", plan.Spec.NodeConfig.Provider)
+		confMap := make(map[string]string)
+		newconf := plan.Spec.NodeConfig.Config
+
+		///config file doesnt exist
+		configFile, err := ioutil.ReadFile(filepath.Join(configDir, "config.yaml"))
+		if err != nil {
+			logrus.Errorf("config file not found,creating")
+			os.MkdirAll(configDir, 755)
+			f, _ := os.Create(filepath.Join(configDir, "config.yaml"))
+			confMap = newconf
+			contents, _ := json.Marshal(confMap)
+			_, err = f.Write(contents)
+		} else {
+			///config file exists
+			err = json.Unmarshal(configFile, &confMap)
+			for flag, _ := range newconf {
+				confMap[flag] = newconf[flag]
+			}
+			f, _ := os.Open(filepath.Join(configDir, "config.yaml"))
+			contents, _ := json.Marshal(confMap)
+			_, err = f.Write(contents)
+		}
+		cmd := exec.Command("systemctl", "restart", plan.Spec.NodeConfig.Provider+"-server")
+		err = cmd.Run()
+		if err != nil {
+			logrus.Errorf("couldnt restart", err)
+
+		}
 	}
 
 	if ActiveDeadlineSeconds > 0 {
